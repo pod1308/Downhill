@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Downhill / Bay Area Watershed Justice Atlas</title>
+<meta name="description" content="Cumulative environmental burden and permitted dischargers across the nine county San Francisco Bay Area, built on CalEnviroScreen and EPA records." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css" />
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+
+<style>
+:root{
+  --ink:#080D10; --surface:#101A1F; --surface-2:#16232A;
+  --line:rgba(233,233,228,.11); --line-2:rgba(233,233,228,.20);
+  --text:#E9E9E4; --muted:#93A3AB; --faint:#65757D;
+  --accent:#FF5A36; --accent-ink:#1A0600; --hydro:#4EA8DE;
+  --b1:#F4E9D8; --b2:#E9A23B; --b3:#C2452A; --b4:#6B1B14; --ok:#3F9E63;
+  --r:3px; --r-lg:6px;
+  --ease:cubic-bezier(.22,1,.36,1); --spring:cubic-bezier(.34,1.4,.5,1);
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 16px 48px rgba(0,0,0,.45);
+}
+html.light{
+  --ink:#EFEEE9; --surface:#FFFFFF; --surface-2:#F5F4EF;
+  --line:rgba(8,13,16,.12); --line-2:rgba(8,13,16,.22);
+  --text:#111A1F; --muted:#556169; --faint:#8B959B;
+  --shadow:0 1px 2px rgba(8,13,16,.08), 0 16px 44px rgba(8,13,16,.14);
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--ink);color:var(--text);font-family:'Archivo',system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden}
+.mono{font-family:'Geist Mono',ui-monospace,SFMono-Regular,monospace;font-variant-numeric:tabular-nums}
+#stage{position:fixed;inset:0;z-index:0}
+.maplibregl-ctrl-attrib{font-size:9.5px;opacity:.55}
+
+#gate{position:fixed;inset:0;z-index:60;background:var(--ink);display:flex;align-items:center;
+  justify-content:center;padding:32px;transition:opacity .55s var(--ease)}
+#gate.gone{opacity:0;pointer-events:none}
+.gbox{max-width:640px;width:100%}
+.gmark{display:flex;align-items:baseline;gap:10px;font-size:17px;font-weight:700;letter-spacing:-.02em;margin-bottom:20px}
+.gmark i{color:var(--accent);font-size:19px;transform:translateY(2px)}
+.gbox h1{margin:0 0 14px;font-size:clamp(28px,4.4vw,46px);line-height:1.04;letter-spacing:-.035em;font-weight:700}
+.gbox p{margin:0 0 14px;font-size:14.5px;line-height:1.65;color:var(--muted)}
+.gline{display:flex;align-items:center;gap:10px;font-size:13px;padding:7px 0;color:var(--muted)}
+.gline i{font-size:16px;flex:none}
+.gline.ok i{color:var(--ok)} .gline.bad i{color:var(--accent)}
+.spin{display:inline-block;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.bar{height:3px;background:var(--line);border-radius:2px;overflow:hidden;margin:14px 0 4px}
+.bar span{display:block;height:100%;width:0;background:var(--accent);transition:width .4s var(--ease)}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:42px;padding:0 18px;
+  border-radius:var(--r);border:1px solid transparent;background:var(--accent);color:var(--accent-ink);
+  font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;text-decoration:none;
+  transition:transform .18s var(--spring),filter .18s var(--ease)}
+.btn:hover{filter:brightness(1.08)} .btn:active{transform:scale(.97)}
+.btn.line{background:transparent;border-color:var(--line-2);color:var(--text)}
+.btn.line:hover{border-color:var(--text);background:rgba(233,233,228,.05)}
+.btn i{font-size:16px}
+
+#app{position:fixed;inset:0;z-index:12;pointer-events:none;opacity:0;visibility:hidden;
+  transition:opacity .5s var(--ease),visibility 0s linear .5s}
+#app.on{opacity:1;visibility:visible;transition:opacity .5s var(--ease),visibility 0s}
+#app.on > *{pointer-events:auto}
+#app:not(.on) > *{pointer-events:none}
+
+#rail{position:absolute;top:16px;left:16px;bottom:16px;width:54px;display:flex;flex-direction:column;
+  gap:4px;align-items:center;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-lg);padding:9px 0;box-shadow:var(--shadow)}
+#rail .logo{width:32px;height:32px;display:grid;place-items:center;color:var(--accent);font-size:19px;margin-bottom:4px}
+.rbtn{width:38px;height:38px;border:0;border-radius:var(--r);background:transparent;color:var(--muted);
+  font-size:18px;cursor:pointer;display:grid;place-items:center;position:relative;
+  transition:background .18s,color .18s,transform .18s var(--spring)}
+.rbtn:hover{background:var(--surface-2);color:var(--text)}
+.rbtn:active{transform:scale(.92)}
+.rbtn.on{background:var(--accent);color:var(--accent-ink)}
+.rbtn .tip{position:absolute;left:46px;top:50%;transform:translateY(-50%) translateX(-4px);
+  background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+  font-family:'Geist Mono',monospace;font-size:10.5px;white-space:nowrap;padding:5px 8px;
+  border-radius:var(--r);opacity:0;pointer-events:none;transition:opacity .16s,transform .16s;z-index:5}
+@media (hover:hover) and (pointer:fine){.rbtn:hover .tip{opacity:1;transform:translateY(-50%) translateX(0)}}
+#rail .sp{flex:1}
+
+#panel{position:absolute;top:16px;left:82px;width:348px;max-height:calc(100vh - 32px);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--shadow);display:none;flex-direction:column;overflow:hidden}
+#panel.on{display:flex;animation:pin .24s var(--ease)}
+@keyframes pin{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.phead{display:flex;align-items:center;gap:10px;padding:15px 16px 13px;border-bottom:1px solid var(--line);flex:none}
+.phead h2{margin:0;font-size:13.5px;font-weight:600;flex:1}
+.phead .x{width:26px;height:26px;border:0;background:transparent;color:var(--faint);border-radius:var(--r);
+  cursor:pointer;font-size:15px;display:grid;place-items:center}
+.phead .x:hover{color:var(--text);background:var(--surface-2)}
+.pbody{padding:16px;overflow-y:auto;flex:1;min-height:0}
+.pbody::-webkit-scrollbar{width:8px}
+.pbody::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
+.lede{margin:0 0 14px;font-size:12.5px;line-height:1.6;color:var(--muted)}
+
+.grp{margin-bottom:6px}
+.grp + .grp{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.grp h3{margin:0 0 9px;font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);font-weight:400;display:flex;align-items:center;gap:7px}
+.tag{font-family:'Geist Mono',monospace;font-size:8.5px;letter-spacing:.1em;padding:2px 5px;
+  border-radius:2px;text-transform:uppercase}
+.tag.real{background:rgba(63,158,99,.18);color:#6FD79A}
+.tag.appr{background:rgba(233,162,59,.18);color:#F0C173}
+.lrow{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:12.5px;color:var(--muted);cursor:pointer}
+.lrow:hover{color:var(--text)}
+.lrow .nm{flex:1;user-select:none}
+.cite{width:16px;height:16px;min-width:16px;border-radius:50%;border:1px solid var(--line-2);color:var(--faint);
+  font-size:9px;line-height:1;display:inline-grid;place-items:center;flex:none;cursor:pointer;
+  font-family:'Geist Mono',monospace;transition:color .16s,border-color .16s,background .16s}
+.cite:hover{color:var(--accent-ink);border-color:var(--accent);background:var(--accent)}
+.sw{position:relative;width:30px;height:17px;border-radius:9px;background:var(--line-2);flex:none;transition:background .2s}
+.sw::after{content:'';position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+  background:var(--text);transition:transform .24s var(--spring)}
+.sw.on{background:var(--accent)}
+.sw.on::after{transform:translateX(13px);background:var(--accent-ink)}
+
+.st{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:9px 0;
+  border-bottom:1px solid var(--line);font-size:12.5px}
+.st:last-child{border-bottom:0}
+.st .k{color:var(--muted);display:flex;align-items:center;gap:6px}
+.st .v{font-weight:600;text-align:right}
+.banner{display:flex;gap:9px;align-items:flex-start;padding:10px 11px;border-radius:var(--r);
+  background:rgba(78,168,222,.12);border:1px solid rgba(78,168,222,.30);margin-bottom:13px;
+  font-size:11.5px;line-height:1.55;color:#8FD0F5}
+.banner i{font-size:14px;flex:none;margin-top:1px}
+.banner.warn{background:rgba(233,162,59,.12);border-color:rgba(233,162,59,.32);color:var(--b2)}
+
+.sld{padding:9px 0 3px}
+.sld .lab{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);margin-bottom:8px}
+.sld .lab b{color:var(--accent);font-family:'Geist Mono',monospace;font-weight:500}
+input[type=range]{-webkit-appearance:none;width:100%;height:3px;border-radius:2px;background:var(--line-2);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+  background:var(--accent);cursor:pointer;border:2px solid var(--surface);box-shadow:0 0 0 1px var(--accent)}
+
+#topright{position:absolute;top:16px;right:16px;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:60vw}
+.tbtn{height:34px;padding:0 12px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);
+  color:var(--text);font:inherit;font-size:12.5px;font-weight:500;cursor:pointer;display:inline-flex;
+  align-items:center;gap:7px;box-shadow:var(--shadow);transition:transform .18s var(--spring),border-color .18s}
+.tbtn:hover{border-color:var(--line-2)} .tbtn:active{transform:scale(.96)}
+.tbtn i{font-size:15px;color:var(--muted)}
+.kbd{font-family:'Geist Mono',monospace;font-size:10px;padding:2px 5px;border:1px solid var(--line-2);
+  border-radius:2px;color:var(--faint)}
+
+#legend{position:absolute;left:82px;bottom:16px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-lg);padding:12px 14px;box-shadow:var(--shadow);min-width:200px;max-width:260px;
+  display:none;transition:left .28s var(--ease)}
+#legend.on{display:block} #legend.shift{left:442px}
+#legend h4{margin:0 0 9px;font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--faint);font-weight:400}
+.lg{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--muted);padding:2.5px 0}
+.lg .k{width:14px;height:10px;border-radius:2px;flex:none}
+.ramp{height:9px;border-radius:2px;margin:6px 0 4px;background:linear-gradient(90deg,var(--b1),var(--b2),var(--b3),var(--b4))}
+.rampx{display:flex;justify-content:space-between;font-family:'Geist Mono',monospace;font-size:9.5px;color:var(--faint)}
+@media (max-width:1100px){ #legend.shift{display:none} }
+
+#cmd{position:fixed;inset:0;z-index:40;display:none;background:rgba(8,13,16,.62);backdrop-filter:blur(3px);padding-top:14vh}
+#cmd.on{display:block}
+#cmdbox{max-width:560px;margin:0 auto;background:var(--surface);border:1px solid var(--line-2);
+  border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
+#cmdin{width:100%;height:50px;border:0;border-bottom:1px solid var(--line);background:transparent;
+  color:var(--text);font:inherit;font-size:15px;padding:0 18px;outline:none}
+#cmdlist{max-height:360px;overflow-y:auto;padding:6px}
+.ci{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:var(--r);cursor:pointer;font-size:13.5px}
+.ci i{font-size:16px;color:var(--muted);width:18px;flex:none}
+.ci span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ci .sub{margin-left:auto;font-family:'Geist Mono',monospace;font-size:10.5px;color:var(--faint);flex:none}
+.ci.sel{background:var(--accent);color:var(--accent-ink)}
+.ci.sel i,.ci.sel .sub{color:var(--accent-ink)}
+
+#cite{position:fixed;z-index:50;max-width:322px;display:none;background:var(--surface);
+  border:1px solid var(--line-2);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:15px 16px}
+#cite .s{font-family:'Geist Mono',monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);margin-bottom:7px}
+#cite h4{margin:0 0 7px;font-size:13px;font-weight:600}
+#cite p{margin:0 0 11px;font-size:12px;line-height:1.58;color:var(--muted)}
+#cite a{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none}
+#cite a:hover{text-decoration:underline}
+#cite .warn{margin:0 0 10px;font-size:11px;line-height:1.5;color:var(--b2);border-left:2px solid var(--b2);padding-left:9px}
+
+.maplibregl-popup-content{background:var(--surface);color:var(--text);border:1px solid var(--line-2);
+  border-radius:var(--r-lg);box-shadow:var(--shadow);padding:14px 16px;font-family:'Archivo',sans-serif}
+.maplibregl-popup-tip{display:none}
+.maplibregl-popup-close-button{color:var(--faint);font-size:17px;padding:2px 7px 0 0}
+.pt{font-size:13.5px;font-weight:600;margin-bottom:3px;line-height:1.3}
+.ps{font-family:'Geist Mono',monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:9px}
+.badge{display:inline-block;font-family:'Geist Mono',monospace;font-size:8.5px;letter-spacing:.1em;
+  padding:2px 5px;border-radius:2px;text-transform:uppercase;margin-bottom:8px;
+  background:rgba(63,158,99,.18);color:#6FD79A}
+.badge.appr{background:rgba(233,162,59,.18);color:#F0C173}
+.pr{display:flex;justify-content:space-between;gap:18px;font-size:12px;padding:2.5px 0}
+.pr span{color:var(--muted)} .pr b{font-weight:600;font-family:'Geist Mono',monospace}
+.plink{display:inline-flex;align-items:center;gap:5px;margin-top:9px;font-size:11.5px;font-weight:600;color:var(--hydro);text-decoration:none}
+.plink:hover{text-decoration:underline}
+.caveat{font-size:10.5px;line-height:1.5;color:var(--faint);margin-top:9px;border-top:1px solid var(--line);padding-top:8px}
+
+#toast{position:fixed;bottom:22px;left:50%;z-index:45;background:var(--surface);border:1px solid var(--line-2);
+  border-radius:var(--r);box-shadow:var(--shadow);padding:10px 16px;font-size:12.5px;font-weight:500;
+  opacity:0;transform:translateX(-50%) translateY(12px);pointer-events:none;max-width:70vw;text-align:center;
+  transition:opacity .26s,transform .26s var(--spring)}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.gsec{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.gsec:last-child{border-bottom:0;margin-bottom:0}
+.gsec h3{margin:0 0 8px;font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:8px}
+.gsec h3 i{color:var(--accent);font-size:15px}
+.gsec p{margin:0 0 8px;font-size:12px;line-height:1.6;color:var(--muted)}
+.gsec ul,.gsec ol{margin:0;padding-left:17px;font-size:12px;line-height:1.7;color:var(--muted)}
+.keyrow{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);gap:10px;padding:3px 0}
+@media (max-width:900px){ #panel{width:calc(100vw - 98px)} }
+@media (prefers-reduced-motion:reduce){ *{animation-duration:.01ms !important;transition-duration:.01ms !important} }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+
+<div id="gate"><div class="gbox">
+  <div class="gmark"><i class="ph-fill ph-drop-half-bottom"></i> Downhill</div>
+  <h1 id="gTitle">Everything runs downhill</h1>
+  <p id="gLead">Cumulative environmental burden and permitted dischargers across the nine county Bay Area. Loading CalEnviroScreen tracts directly from California's open data service.</p>
+  <div class="bar"><span id="gBar"></span></div>
+  <div id="gStatus"></div>
+  <div id="gGo" style="display:none;margin-top:20px">
+    <button class="btn" id="enterBtn"><i class="ph ph-map-trifold"></i> Open the atlas</button>
+  </div>
+  <div id="gRetry" style="display:none;margin-top:20px">
+    <button class="btn line" id="retryBtn"><i class="ph ph-arrow-clockwise"></i> Try again</button>
+  </div>
+</div></div>
+
+<div id="app">
+  <nav id="rail">
+    <div class="logo"><i class="ph-fill ph-drop-half-bottom"></i></div>
+    <button class="rbtn" data-panel="layers"><i class="ph ph-stack"></i><span class="tip">Layers</span></button>
+    <button class="rbtn" data-panel="inspect"><i class="ph ph-crosshair-simple"></i><span class="tip">Inspect a location</span></button>
+    <button class="rbtn" data-panel="trace"><i class="ph ph-flow-arrow"></i><span class="tip">Trace downstream</span></button>
+    <button class="rbtn" data-panel="rank"><i class="ph ph-ranking"></i><span class="tip">Highest scoring tracts</span></button>
+    <button class="rbtn" data-panel="data"><i class="ph ph-database"></i><span class="tip">Data and export</span></button>
+    <div class="sp"></div>
+    <button class="rbtn" data-panel="guide"><i class="ph ph-book-open"></i><span class="tip">About and method</span></button>
+  </nav>
+  <section id="panel">
+    <div class="phead"><h2 id="pTitle">Layers</h2><button class="x" id="pClose"><i class="ph ph-x"></i></button></div>
+    <div class="pbody" id="pBody"></div>
+  </section>
+  <div id="legend"><h4>Legend</h4><div id="legendBody"></div></div>
+  <div id="topright">
+    <button class="tbtn" id="cmdBtn"><i class="ph ph-magnifying-glass"></i> Find <span class="kbd">K</span></button>
+    <button class="tbtn" id="shareBtn" title="Copy link"><i class="ph ph-link"></i></button>
+    <button class="tbtn" id="themeBtn" title="Theme"><i class="ph ph-sun"></i></button>
+  </div>
+</div>
+
+<div id="cmd"><div id="cmdbox">
+  <input id="cmdin" placeholder="Find a facility, tract, county or tool" autocomplete="off" spellcheck="false" />
+  <div id="cmdlist"></div>
+</div></div>
+<div id="cite"></div>
+<div id="toast"></div>
+
+<script>
+/* ==========================================================================
+   Downhill / Bay Area Watershed Justice Atlas
+
+   Single file. No build step, no install, no server side anything.
+   Drop it in a repository, enable GitHub Pages, done.
+
+   Burden data is fetched live from California's public CalEnviroScreen
+   ArcGIS service when the page opens. Facility records are embedded.
+
+   ON CLAIMS. This map shows where burden scores are high and where permitted
+   facilities are. It does not assert that any facility caused any tract's
+   score. Those are two separate public datasets drawn on one basemap, and the
+   interface says so wherever they meet.
+   ========================================================================== */
+
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const BAY = {center:[-122.19,37.80], zoom:8.6};
+const STYLE = {
+  dark:"https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+  light:"https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
+};
+
+/* Census tract IDs are FIPS coded: 6 for California, then a three digit county,
+   then the tract. That lets us filter to exactly the nine counties server side
+   and derive the county name without needing a county field. */
+const COUNTY_FIPS = {1:"Alameda",13:"Contra Costa",41:"Marin",55:"Napa",
+  75:"San Francisco",81:"San Mateo",85:"Santa Clara",95:"Solano",97:"Sonoma"};
+function countyOf(tract){
+  const n=Number(tract);
+  if(!n||isNaN(n))return null;
+  return COUNTY_FIPS[Math.floor(n/1e6)%1000]||null;
+}
+
+/* Verified live before publication. Layer 0, CalEnviroScreen results. */
+const CES_URL = "https://services1.arcgis.com/PCHfdHz4GlDNAhBb/arcgis/rest/"+
+                "services/CalEnviroScreen_4_0_Results_/FeatureServer/0";
+const CES_LABEL = "CalEnviroScreen 4.0";
+
+/* Field names read from the live service schema. All percentiles end in P. */
+const IND = [
+  ["CIscoreP","CalEnviroScreen score","overall"],
+  ["PollutionP","Pollution burden","group"],
+  ["PopCharP","Population characteristics","group"],
+  ["ozoneP","Ozone"],["pmP","PM2.5"],["dieselP","Diesel PM"],
+  ["pestP","Pesticides"],["RSEIhazP","Toxic releases"],["trafficP","Traffic"],
+  ["drinkP","Drinking water"],["leadP","Lead risk from housing"],
+  ["cleanupsP","Cleanup sites"],["gwthreatsP","Groundwater threats"],
+  ["hazP","Hazardous waste"],["iwbP","Impaired water bodies"],["swisP","Solid waste"],
+  ["asthmaP","Asthma"],["lbwP","Low birth weight"],["cvdP","Cardiovascular disease"],
+  ["eduP","Education"],["lingP","Linguistic isolation"],["povP","Poverty"],
+  ["unempP","Unemployment"],["housingBP","Housing burden"]
+];
+const OUT_FIELDS = ["tract","TractTXT","ACS2019TotalPop","CIscore"]
+  .concat(IND.map(function(r){return r[0];})).join(",");
+
+/* Burden layers offered as fills, keyed to the field they draw. */
+const FILLS = {
+  ces:{f:"CIscoreP",  nm:"CalEnviroScreen score"},
+  poll:{f:"PollutionP",nm:"Pollution burden"},
+  asthma:{f:"asthmaP",nm:"Asthma"},
+  pov:{f:"povP",      nm:"Poverty"},
+  pm:{f:"pmP",        nm:"PM2.5"},
+  diesel:{f:"dieselP",nm:"Diesel PM"},
+  traffic:{f:"trafficP",nm:"Traffic"},
+  iwb:{f:"iwbP",      nm:"Impaired water bodies"}
+};
+
+/* ==========================================================================
+   EMBEDDED FACILITY RECORDS
+   Real, publicly documented Bay Area sites. Names and operators come from
+   public regulatory records. Marker positions are approximate facility
+   centroids, labeled as such in every popup, with a live EPA ECHO lookup so
+   the authoritative record is always one click away.
+   ========================================================================== */
+const FAC_CATS = {
+  treatment:{nm:"Wastewater treatment plant",c:"#4EA8DE"},
+  refinery:{nm:"Petroleum or renewable fuels refinery",c:"#FF5A36"},
+  works:{nm:"Industrial works or cleanup site",c:"#E9683B"},
+  waste:{nm:"Landfill or waste handling",c:"#E9A23B"},
+  power:{nm:"Power generation",c:"#E97B2B"}
+};
+const FACILITIES = [
+  ["refinery","Chevron Richmond Refinery","Chevron",-122.394,37.936,"Petroleum refining"],
+  ["refinery","Marathon Martinez Renewable Fuels","Marathon Petroleum",-122.086,38.031,"Renewable fuels, former Golden Eagle refinery"],
+  ["refinery","PBF Energy Martinez Refinery","PBF Energy",-122.118,38.024,"Petroleum refining, former Shell Martinez"],
+  ["refinery","Phillips 66 Rodeo Renewed","Phillips 66",-122.263,38.048,"Renewable fuels, former San Francisco Refinery"],
+  ["refinery","Valero Benicia Refinery","Valero",-122.128,38.073,"Petroleum refining"],
+  ["works","Lehigh Southwest Cement Permanente Plant","Lehigh Hanson",-122.086,37.320,"Cement plant and limestone quarry"],
+  ["works","USS-POSCO Industries Pittsburg Works","US Steel",-121.870,38.031,"Steel finishing, closed 2023, legacy site"],
+  ["works","Hunters Point Naval Shipyard","US Navy",-122.365,37.725,"Federal cleanup site"],
+  ["works","Alameda Naval Air Station","US Navy",-122.315,37.785,"Federal cleanup site"],
+  ["works","Moffett Federal Airfield","NASA Ames",-122.048,37.415,"Federal cleanup site"],
+  ["works","Concord Naval Weapons Station","US Navy",-122.030,38.020,"Federal cleanup site"],
+  ["works","Lawrence Livermore National Laboratory","US DOE",-121.706,37.687,"Federal research and cleanup site"],
+  ["works","United Heckathorn Superfund Site","EPA lead",-122.360,37.918,"Pesticide legacy contamination"],
+  ["treatment","San Jose Santa Clara Regional Wastewater Facility","City of San Jose",-121.943,37.447,"Largest advanced treatment plant on the Bay"],
+  ["treatment","EBMUD Main Wastewater Treatment Plant","East Bay MUD",-122.325,37.816,"Serves the inner East Bay"],
+  ["treatment","SF Southeast Water Pollution Control Plant","SFPUC",-122.390,37.736,"Combined sewer system"],
+  ["treatment","SF Oceanside Water Pollution Control Plant","SFPUC",-122.505,37.735,"Discharges to the Pacific"],
+  ["treatment","Palo Alto Regional Water Quality Control Plant","City of Palo Alto",-122.113,37.452,"Serves the mid Peninsula"],
+  ["treatment","Sunnyvale Water Pollution Control Plant","City of Sunnyvale",-122.018,37.429,""],
+  ["treatment","Silicon Valley Clean Water","SVCW",-122.205,37.525,"Redwood City regional plant"],
+  ["treatment","Union Sanitary District Alvarado Plant","Union Sanitary District",-122.053,37.562,""],
+  ["treatment","Oro Loma Sanitary District Plant","Oro Loma",-122.149,37.690,""],
+  ["treatment","Central Contra Costa Sanitary District","Central San",-122.070,37.984,""],
+  ["treatment","Delta Diablo Sanitation District","Delta Diablo",-121.833,38.018,""],
+  ["treatment","Central Marin Sanitation Agency","CMSA",-122.506,37.956,""],
+  ["treatment","Vallejo Flood and Wastewater District","VFWD",-122.266,38.108,""],
+  ["treatment","Napa Sanitation District","NapaSan",-122.296,38.262,""],
+  ["treatment","Fairfield Suisun Sewer District","FSSD",-122.030,38.220,""],
+  ["treatment","South San Francisco San Bruno Water Quality Control Plant","City of South SF",-122.386,37.656,""],
+  ["treatment","San Mateo Wastewater Treatment Plant","City of San Mateo",-122.320,37.581,""],
+  ["treatment","Millbrae Water Pollution Control Plant","City of Millbrae",-122.390,37.647,""],
+  ["treatment","West County Wastewater District","WCWD",-122.350,37.970,""],
+  ["treatment","Livermore Water Reclamation Plant","City of Livermore",-121.750,37.660,""],
+  ["treatment","Dublin San Ramon Services District","DSRSD",-121.890,37.695,""],
+  ["treatment","Sonoma Valley County Sanitation District","Sonoma Water",-122.453,38.232,""],
+  ["treatment","Petaluma Ellis Creek Water Recycling Facility","City of Petaluma",-122.588,38.213,""],
+  ["treatment","Novato Sanitary District","Novato San",-122.560,38.093,""],
+  ["treatment","Las Gallinas Valley Sanitary District","LGVSD",-122.520,38.020,""],
+  ["treatment","Sewerage Agency of Southern Marin","SASM",-122.520,37.890,""],
+  ["treatment","Hayward Water Pollution Control Facility","City of Hayward",-122.130,37.630,""],
+  ["treatment","San Leandro Water Pollution Control Plant","City of San Leandro",-122.185,37.700,""],
+  ["treatment","Pinole Hercules Water Pollution Control Plant","City of Pinole",-122.290,38.010,""],
+  ["treatment","Rodeo Sanitary District","Rodeo San",-122.265,38.032,""],
+  ["treatment","Mt View Sanitary District","MVSD",-122.080,38.030,""],
+  ["treatment","Benicia Wastewater Treatment Plant","City of Benicia",-122.150,38.045,""],
+  ["treatment","American Canyon Water Reclamation Facility","City of American Canyon",-122.255,38.175,""],
+  ["treatment","Burlingame Wastewater Treatment Plant","City of Burlingame",-122.352,37.594,""],
+  ["treatment","Richmond Municipal Sewer District","City of Richmond",-122.360,37.925,""],
+  ["treatment","Sewer Authority Mid Coastside","SAM",-122.440,37.470,"Half Moon Bay area"],
+  ["waste","Altamont Landfill and Resource Recovery","Waste Management",-121.660,37.732,"Regional landfill"],
+  ["waste","Keller Canyon Landfill","Republic Services",-121.878,37.995,""],
+  ["waste","Newby Island Landfill","Republic Services",-121.928,37.440,""],
+  ["waste","Potrero Hills Landfill","Republic Services",-121.958,38.208,""],
+  ["waste","Vasco Road Sanitary Landfill","Republic Services",-121.700,37.720,""],
+  ["waste","Redwood Landfill and Recycling","Waste Management",-122.540,38.130,""],
+  ["waste","Corinda Los Trancos Ox Mountain Landfill","Republic Services",-122.400,37.520,""],
+  ["waste","Guadalupe Sanitary Landfill","City of San Jose",-121.845,37.222,""],
+  ["waste","Zanker Road Resource Recovery","Zanker",-121.940,37.430,""],
+  ["waste","Tri Cities Recycling and Disposal Facility","Republic Services",-121.960,37.480,""],
+  ["power","Russell City Energy Center","Calpine",-122.135,37.632,"Natural gas combined cycle"],
+  ["power","Gateway Generating Station","PG&E",-121.762,38.017,"Natural gas combined cycle"],
+  ["power","Los Medanos Energy Center","Calpine",-121.870,38.020,"Natural gas combined cycle"],
+  ["power","Delta Energy Center","Calpine",-121.875,38.020,"Natural gas combined cycle"],
+  ["power","Marsh Landing Generating Station","NRG Energy",-121.760,38.021,"Natural gas peaker"]
+];
+
+const SINKS=[[-122.32,37.81],[-122.06,37.53],[-121.96,37.46],[-122.38,37.62],[-122.44,38.02]];
+const SINK_NAMES=["Central Bay","South Bay","Lower South Bay","Central Bay","San Pablo Bay"];
+
+const D={tracts:null,fac:null,retrieved:null};
+const PLACES=[];
+let map,theme="dark",VSRC=null,ready=false;
+
+const toastEl=document.getElementById("toast");
+function toast(m){toastEl.textContent=m;toastEl.classList.add("on");
+  clearTimeout(toastEl._t);toastEl._t=setTimeout(function(){toastEl.classList.remove("on");},2800);}
+const near=function(p,arr){return arr.reduce(function(b,s){
+  return turf.distance(p,s)<turf.distance(p,b)?s:b;},arr[0]);};
+
+/* ---------- citations ---------- */
+const CITE = {
+  ces:{s:"OEHHA",t:"CalEnviroScreen",
+    b:"California's cumulative impact screening tool. Every census tract is scored from pollution burden and population characteristics, then ranked against all other tracts in the state. The number shown is a statewide percentile: 90 means this tract scores higher than 90 percent of California tracts.",
+    warn:"A screening tool, not a health risk assessment. It says nothing about risk to any individual person or address.",
+    u:"https://oehha.ca.gov/calenviroscreen",l:"CalEnviroScreen at OEHHA"},
+  pctl:{s:"Method",t:"Reading a percentile",
+    b:"Percentiles rank a tract against all California tracts on one indicator. They are relative, not absolute. A tract at the 95th percentile for asthma has a higher rate than 95 percent of California tracts. It does not mean 95 percent of residents have asthma.",
+    u:"https://oehha.ca.gov/calenviroscreen",l:"CalEnviroScreen indicators"},
+  fac:{s:"Public records",t:"Where the facilities come from",
+    b:"A fixed list of real, publicly documented Bay Area sites: the five major refineries, treatment plants discharging to the estuary, permitted landfills, power stations and federal cleanup sites. Names and operators are from public regulatory records. Marker positions are approximate facility centroids, so every popup links to EPA ECHO for the authoritative permit record.",
+    warn:"Positions are approximate centroids, not surveyed coordinates. Holding a permit is not a finding of harm.",
+    u:"https://echo.epa.gov/",l:"EPA Enforcement and Compliance History Online"},
+  hydro:{s:"OpenStreetMap",t:"Creeks and rivers",
+    b:"Waterway centrelines come from the basemap's own vector tiles, so the water layer and the map are the same data. OSM digitises waterways in the direction of flow, which is what the animation follows.",
+    u:"https://wiki.openstreetmap.org/wiki/Key:waterway#:~:text=waterway",l:"OSM waterway key"},
+  trace:{s:"Method",t:"How the trace works",
+    b:"The click snaps to the nearest rendered waterway, orients that reach toward open water, then walks up to four connected reaches, accepting each hop only if it reduces distance to the estuary. The geometry is real. The routing is a plausible surface path, not a hydraulic model, and it cannot see culverts, pumps or the piped storm drain network.",
+    warn:"Indicative only. Do not use it to establish that a discharge reached a particular water body.",
+    u:"https://www.usgs.gov/3d-hydrography-program",l:"USGS 3D Hydrography Program"},
+  adjacency:{s:"Important",t:"Proximity is not causation",
+    b:"This map draws two independent public datasets on one basemap. A facility sitting inside a high scoring tract is a fact about geography, not evidence that the facility caused the score. CalEnviroScreen combines around twenty indicators, most of which have nothing to do with any single site. Treat adjacency as a question worth asking, never as an answer.",
+    warn:"Do not present proximity as causation in public comment or press.",
+    u:"https://oehha.ca.gov/calenviroscreen/report/calenviroscreen-40",l:"How the score is built"}
+};
+
+const LS={ces:true,poll:false,asthma:false,pov:false,pm:false,diesel:false,
+  traffic:false,iwb:false,fac:true,faclab:true,hydro:true,flow:true};
+
+/* ==========================================================================
+   LOAD: CalEnviroScreen, live, no build step
+   ========================================================================== */
+function gline(txt,state){
+  const d=document.createElement("div");
+  d.className="gline "+(state||"");
+  d.innerHTML='<i class="ph '+(state==="ok"?"ph-check-circle":state==="bad"?"ph-x-circle":"ph-circle-notch spin")+'"></i><span>'+txt+'</span>';
+  document.getElementById("gStatus").appendChild(d);
+  return d;
+}
+function setLine(el,txt,state){
+  el.className="gline "+state;
+  el.innerHTML='<i class="ph '+(state==="ok"?"ph-check-circle":"ph-x-circle")+'"></i><span>'+txt+'</span>';
+}
+function bar(p){document.getElementById("gBar").style.width=Math.round(p*100)+"%";}
+
+function whereClause(){
+  return Object.keys(COUNTY_FIPS).map(function(c){
+    const lo=6000000000+(+c)*1000000;
+    return "(tract>="+lo+" AND tract<="+(lo+999999)+")";
+  }).join(" OR ");
+}
+
+function fetchTracts(line){
+  const feats=[];
+  const page=1000;
+  function grab(offset){
+    const q=new URLSearchParams({
+      where:whereClause(), outFields:OUT_FIELDS, returnGeometry:"true",
+      outSR:"4326", f:"geojson",
+      maxAllowableOffset:"0.0005",   /* generalise server side, ~50 m */
+      geometryPrecision:"5",
+      resultOffset:String(offset), resultRecordCount:String(page)
+    });
+    return fetch(CES_URL+"/query?"+q.toString())
+      .then(function(r){ if(!r.ok)throw new Error("HTTP "+r.status); return r.json(); })
+      .then(function(j){
+        if(j.error) throw new Error(j.error.message||"service error");
+        const got=j.features||[];
+        got.forEach(function(f){
+          const p=f.properties||{};
+          const county=countyOf(p.tract);
+          if(!county)return;
+          if(p.CIscoreP===null||p.CIscoreP===undefined)return;
+          p.county=county;
+          p.tractId=p.TractTXT||String(p.tract);
+          feats.push(f);
+        });
+        setLine(line,feats.length.toLocaleString()+" tracts loaded","");
+        line.className="gline";
+        line.innerHTML='<i class="ph ph-circle-notch spin"></i><span>'+
+          feats.length.toLocaleString()+" tracts loaded</span>";
+        bar(Math.min(.95,feats.length/1600));
+        if(got.length<page) return feats;
+        return grab(offset+page);
+      });
+  }
+  return grab(0);
+}
+
+function boot(){
+  document.getElementById("gStatus").innerHTML="";
+  document.getElementById("gRetry").style.display="none";
+  bar(.05);
+  const l1=gline("Contacting California open data service");
+  const l2=gline("Reading facility records");
+
+  D.fac={type:"FeatureCollection",features:FACILITIES.map(function(r,i){
+    return {type:"Feature",geometry:{type:"Point",coordinates:[r[3],r[4]]},
+      properties:{uid:"F"+i,cat:r[0],name:r[1],operator:r[2],note:r[5]}};
+  })};
+  setLine(l2,D.fac.features.length+" published facilities","ok");
+
+  fetchTracts(l1).then(function(feats){
+    if(!feats.length) throw new Error("no tracts returned");
+    D.tracts={type:"FeatureCollection",features:feats};
+    D.retrieved=new Date().toISOString().slice(0,10);
+    setLine(l1,feats.length.toLocaleString()+" tracts from "+CES_LABEL,"ok");
+    bar(1);
+    document.getElementById("gLead").textContent=
+      "Cumulative environmental burden and permitted dischargers across the nine county Bay Area. Data loaded and ready.";
+    document.getElementById("gGo").style.display="block";
+    initMap();
+  }).catch(function(e){
+    setLine(l1,"Could not load CalEnviroScreen: "+e.message,"bad");
+    bar(0);
+    document.getElementById("gTitle").textContent="Could not reach the data service";
+    document.getElementById("gLead").innerHTML=
+      "The atlas loads burden data live from California's public ArcGIS service. That request failed, "+
+      "which usually means a temporary outage or a network that blocks the request. "+
+      "Nothing is substituted in its place, because a map that invents numbers is worse than no map.";
+    document.getElementById("gRetry").style.display="block";
+  });
+}
+document.getElementById("retryBtn").onclick=boot;
+
+/* ==========================================================================
+   MAP
+   ========================================================================== */
+function initMap(){
+  map=new maplibregl.Map({container:"stage",style:STYLE[theme],center:BAY.center,
+    zoom:BAY.zoom,minZoom:6,maxZoom:19,attributionControl:true});
+  map.addControl(new maplibregl.NavigationControl({showCompass:false}),"bottom-right");
+  map.addControl(new maplibregl.ScaleControl({unit:"imperial"}),"bottom-right");
+  map.on("load",function(){ detectVector(); addSources(); addLayers(); indexPlaces(); ready=true; });
+}
+function detectVector(){
+  const st=map.getStyle(); VSRC=null;
+  if(!st||!st.sources)return;
+  for(const k in st.sources){ if(st.sources[k].type==="vector"){VSRC=k;break;} }
+}
+function addSources(){
+  const put=function(id,d){ if(map.getSource(id))map.getSource(id).setData(d); else map.addSource(id,{type:"geojson",data:d}); };
+  put("tracts",D.tracts); put("fac",D.fac);
+  put("trace",{type:"FeatureCollection",features:[]});
+}
+function rampFor(field){
+  return ["interpolate",["linear"],["coalesce",["to-number",["get",field]],-1],
+    -1,"rgba(0,0,0,0)",1,"#F4E9D8",40,"#E9A23B",70,"#C2452A",100,"#6B1B14"];
+}
+function addLayers(){
+  const layers=map.getStyle().layers||[];
+  let fs; for(let i=0;i<layers.length;i++){ if(layers[i].type==="symbol"){fs=layers[i].id;break;} }
+
+  Object.keys(FILLS).forEach(function(k){
+    map.addLayer({id:k,source:"tracts",type:"fill",
+      layout:{visibility:LS[k]?"visible":"none"},
+      paint:{"fill-color":rampFor(FILLS[k].f),"fill-opacity":.62}},fs);
+  });
+  map.addLayer({id:"tract-line",source:"tracts",type:"line",
+    paint:{"line-color":"rgba(233,233,228,.15)","line-width":.5}},fs);
+  map.addLayer({id:"tract-sel",source:"tracts",type:"line",filter:["==","tractId","__none__"],
+    paint:{"line-color":"#FF5A36","line-width":2.2}},fs);
+
+  if(VSRC){
+    const wf=["!=",["get","brunnel"],"tunnel"];
+    map.addLayer({id:"hydro-glow",type:"line",source:VSRC,"source-layer":"waterway",filter:wf,
+      layout:{"line-cap":"round","line-join":"round"},
+      paint:{"line-color":"#4EA8DE","line-blur":3,"line-opacity":.22,
+        "line-width":["interpolate",["linear"],["zoom"],7,1.6,11,5,15,11]}},fs);
+    map.addLayer({id:"hydro",type:"line",source:VSRC,"source-layer":"waterway",filter:wf,
+      layout:{"line-cap":"round","line-join":"round"},
+      paint:{"line-color":"#4EA8DE","line-opacity":.85,
+        "line-width":["interpolate",["linear"],["zoom"],7,.5,11,1.5,15,3.4]}},fs);
+    map.addLayer({id:"flow",type:"line",source:VSRC,"source-layer":"waterway",filter:wf,
+      layout:{"line-cap":"butt"},
+      paint:{"line-color":"#BFE6FF","line-opacity":.9,"line-dasharray":[0,4,3],
+        "line-width":["interpolate",["linear"],["zoom"],7,.7,11,1.9,15,4]}},fs);
+  }
+
+  map.addLayer({id:"trace-glow",source:"trace",type:"line",
+    layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":"#FF5A36","line-blur":4,"line-opacity":.22,
+      "line-width":["interpolate",["linear"],["zoom"],8,7,14,16]}});
+  map.addLayer({id:"trace-line",source:"trace",type:"line",
+    layout:{"line-cap":"round","line-join":"round"},
+    paint:{"line-color":"#FF5A36","line-opacity":.95,
+      "line-width":["interpolate",["linear"],["zoom"],8,2,14,4]}});
+  map.addLayer({id:"trace-dash",source:"trace",type:"line",layout:{"line-cap":"butt"},
+    paint:{"line-color":"#FFE9E2","line-opacity":.95,"line-dasharray":[0,4,3],
+      "line-width":["interpolate",["linear"],["zoom"],8,2.4,14,4.6]}});
+
+  const catColor=["match",["get","cat"],
+    "treatment","#4EA8DE","refinery","#FF5A36","works","#E9683B",
+    "waste","#E9A23B","power","#E97B2B","#93A3AB"];
+  map.addLayer({id:"fac-halo",source:"fac",type:"circle",
+    paint:{"circle-radius":["interpolate",["linear"],["zoom"],8,7,14,17],
+      "circle-color":catColor,"circle-opacity":.14}});
+  map.addLayer({id:"fac",source:"fac",type:"circle",
+    paint:{"circle-radius":["interpolate",["linear"],["zoom"],8,4,14,9],
+      "circle-color":catColor,"circle-opacity":.96,
+      "circle-stroke-width":1.4,"circle-stroke-color":"rgba(233,233,228,.85)"}});
+  try{
+    map.addLayer({id:"faclab",source:"fac",type:"symbol",minzoom:9.5,
+      layout:{"text-field":["get","name"],"text-font":["Open Sans Regular","Noto Sans Regular"],
+        "text-size":10.5,"text-offset":[0,1.2],"text-anchor":"top","text-max-width":11,"text-optional":true},
+      paint:{"text-color":theme==="dark"?"#E4EEF5":"#22303A",
+        "text-halo-color":theme==="dark"?"rgba(8,13,16,.92)":"rgba(255,255,255,.92)","text-halo-width":1.4}});
+  }catch(e){}
+
+  applyVis(); bindPopups(); renderLegend(); requestAnimationFrame(anim);
+}
+function applyVis(){
+  const v=function(id,on){ if(map.getLayer(id))map.setLayoutProperty(id,"visibility",on?"visible":"none"); };
+  Object.keys(FILLS).forEach(function(k){v(k,LS[k]);});
+  v("hydro",LS.hydro); v("hydro-glow",LS.hydro); v("flow",LS.hydro&&LS.flow);
+  v("fac",LS.fac); v("fac-halo",LS.fac); v("faclab",LS.fac&&LS.faclab);
+  renderLegend();
+}
+function activeFill(){
+  const on=Object.keys(FILLS).filter(function(k){return LS[k];});
+  return on.length?on[0]:null;
+}
+function renderLegend(){
+  const box=document.getElementById("legend"),body=document.getElementById("legendBody");
+  if(!document.getElementById("app").classList.contains("on")){box.classList.remove("on");return;}
+  const f=activeFill();
+  let h="";
+  if(f) h+='<div style="font-size:11.5px;color:var(--muted);margin-bottom:2px">'+FILLS[f].nm+
+    '</div><div class="ramp"></div><div class="rampx"><span>0</span><span>statewide percentile</span><span>100</span></div>';
+  if(LS.fac){
+    h+='<div style="margin-top:9px">';
+    Object.keys(FAC_CATS).forEach(function(k){
+      h+='<div class="lg"><span class="k" style="background:'+FAC_CATS[k].c+';border-radius:50%;width:11px;height:11px"></span>'+FAC_CATS[k].nm+'</div>';
+    });
+    h+='</div>';
+  }
+  if(LS.hydro) h+='<div class="lg" style="margin-top:6px"><span class="k" style="background:#4EA8DE;height:3px"></span>Creek or river</div>';
+  if(!h){box.classList.remove("on");return;}
+  box.classList.add("on"); body.innerHTML=h;
+}
+
+const DASH=[[0,4,3],[0.5,4,2.5],[1,4,2],[1.5,4,1.5],[2,4,1],[2.5,4,0.5],[3,4,0],
+  [0,0.5,3,3.5],[0,1,3,3],[0,1.5,3,2.5],[0,2,3,2],[0,2.5,3,1.5],[0,3,3,1],[0,3.5,3,0.5]];
+let di=0,dt=0,ti=0,tt=0;
+function anim(ts){
+  if(!RM&&map){
+    if(ts-dt>62){dt=ts;di=(di+1)%DASH.length;
+      if(map.getLayer("flow"))try{map.setPaintProperty("flow","line-dasharray",DASH[di]);}catch(e){}}
+    if(ts-tt>44&&map.getLayer("trace-dash")){tt=ts;ti=(ti+1)%DASH.length;
+      try{map.setPaintProperty("trace-dash","line-dasharray",DASH[ti]);}catch(e){}}
+  }
+  requestAnimationFrame(anim);
+}
+
+function indexPlaces(){
+  D.fac.features.forEach(function(f){
+    PLACES.push({name:f.properties.name,sub:(FAC_CATS[f.properties.cat]||{}).nm||"facility",
+      c:f.geometry.coordinates,i:"ph-factory"});
+  });
+  D.tracts.features.forEach(function(f){
+    const p=f.properties;
+    let c=null; try{ c=turf.centroid(f).geometry.coordinates; }catch(e){ return; }
+    PLACES.push({name:"Tract "+p.tractId,sub:p.county,c:c,i:"ph-map-pin"});
+  });
+}
+
+/* ==========================================================================
+   TOOLS
+   ========================================================================== */
+let armI=false,armT=false,mk=null,lastI=null,lastT=null;
+function armAny(){return armI||armT;}
+function setArm(k,on){
+  armI=armT=false;
+  if(on){ if(k==="i")armI=true; else if(k==="t")armT=true; }
+  if(map)map.getCanvas().style.cursor=armAny()?"crosshair":"";
+  const b=document.getElementById("inspBtn");
+  if(b)b.innerHTML=armI?'<i class="ph ph-crosshair"></i> Click the map'
+    :'<i class="ph ph-crosshair-simple"></i> '+(lastI?"Inspect another location":"Inspect a location");
+  const t=document.getElementById("traceBtn");
+  if(t)t.innerHTML=armT?'<i class="ph ph-crosshair"></i> Click near a creek'
+    :'<i class="ph ph-flow-arrow"></i> Arm trace';
+}
+function tractAt(c){
+  const fs=D.tracts.features;
+  for(let i=0;i<fs.length;i++){
+    try{ if(turf.booleanPointInPolygon(turf.point(c),fs[i]))return fs[i]; }catch(e){}
+  }
+  return null;
+}
+function nearestFac(c){
+  let best=null,bd=1e9;
+  D.fac.features.forEach(function(f){const d=turf.distance(c,f); if(d<bd){bd=d;best=f;}});
+  return best?{f:best,km:bd}:null;
+}
+function reachLines(f){
+  if(!f||!f.geometry)return [];
+  return f.geometry.type==="MultiLineString"?f.geometry.coordinates:[f.geometry.coordinates];
+}
+function nearestCreek(ll){
+  if(!map.getLayer("hydro"))return null;
+  const p=map.project(ll);
+  let cand=[];
+  try{cand=map.queryRenderedFeatures([[p.x-150,p.y-150],[p.x+150,p.y+150]],{layers:["hydro"]});}catch(e){}
+  let best=null,bd=1e9;
+  cand.forEach(function(f){
+    reachLines(f).forEach(function(cs){
+      if(cs.length<2)return;
+      const d=turf.pointToLineDistance(turf.point([ll.lng,ll.lat]),turf.lineString(cs));
+      if(d<bd){bd=d;best={name:(f.properties&&(f.properties.name||f.properties["name:en"]))||"Unnamed waterway",
+        cls:(f.properties&&f.properties.class)||"stream",km:d};}
+    });
+  });
+  return best;
+}
+function inspectAt(ll){
+  const c=[ll.lng,ll.lat];
+  const t=tractAt(c),sink=near(c,SINKS);
+  lastI={c:c,t:t?t.properties:null,creek:nearestCreek(ll),fac:nearestFac(c),
+    bay:SINK_NAMES[SINKS.indexOf(sink)]||"open water",bayKm:turf.distance(c,sink)};
+  if(mk)mk.remove();
+  const el=document.createElement("div");
+  el.style.cssText="width:16px;height:16px;border-radius:50%;border:2px solid #FF5A36;"+
+    "background:rgba(255,90,54,.28);box-shadow:0 0 0 4px rgba(255,90,54,.12)";
+  mk=new maplibregl.Marker({element:el}).setLngLat(ll).addTo(map);
+  if(t&&map.getLayer("tract-sel"))map.setFilter("tract-sel",["==","tractId",t.properties.tractId]);
+  openPanel("inspect",true); setArm(null,false);
+}
+function fmtKm(v){return v<1?(v*1000).toFixed(0)+" m":v.toFixed(1)+" km";}
+function echoLink(n){return "https://echo.epa.gov/facilities/facility-search/results?p_fac_name="+encodeURIComponent(n);}
+
+function inspectHTML(){
+  if(!lastI) return '<p class="lede">Click anywhere on the map. This reports every published figure the atlas holds for that point, with its source.</p>'+
+    '<button class="btn" id="inspBtn" style="width:100%"><i class="ph ph-crosshair-simple"></i> Inspect a location</button>';
+  const o=lastI;
+  let h='<button class="btn" id="inspBtn" style="width:100%;margin-bottom:14px">'+
+    '<i class="ph ph-crosshair-simple"></i> Inspect another location</button>';
+  h+='<div class="grp"><h3>Location<span class="tag real">published</span></h3>'+
+     '<div class="st"><span class="k">Coordinates</span><span class="v mono">'+o.c[1].toFixed(5)+', '+o.c[0].toFixed(5)+'</span></div>';
+  if(o.t){
+    h+='<div class="st"><span class="k">Census tract</span><span class="v mono">'+o.t.tractId+'</span></div>'+
+       '<div class="st"><span class="k">County</span><span class="v">'+o.t.county+'</span></div>'+
+       (o.t.ACS2019TotalPop?'<div class="st"><span class="k">Population</span><span class="v mono">'+Number(o.t.ACS2019TotalPop).toLocaleString()+'</span></div>':'');
+  } else h+='<div class="st"><span class="k">Census tract</span><span class="v">outside the dataset</span></div>';
+  h+='<div class="st"><span class="k">Nearest open water</span><span class="v">'+o.bay+'</span></div>'+
+     '<div class="st"><span class="k">Distance to it</span><span class="v mono">'+fmtKm(o.bayKm)+'</span></div></div>';
+
+  if(o.t){
+    h+='<div class="grp"><h3>CalEnviroScreen<span class="tag real">published</span></h3>'+
+       '<div class="banner"><i class="ph ph-info"></i><div>Statewide percentiles. Higher means this tract ranks above more California tracts. <span class="cite" data-c="pctl">i</span></div></div>';
+    IND.forEach(function(r){
+      const v=o.t[r[0]];
+      if(v===null||v===undefined)return;
+      const n=Math.round(Number(v)); if(isNaN(n))return;
+      h+='<div class="st"><span class="k">'+r[1]+(r[2]?' <span style="color:var(--faint);font-size:10px">'+r[2]+'</span>':'')+
+         '</span><span class="v mono">'+n+'</span></div>';
+    });
+    h+='</div>';
+  }
+
+  h+='<div class="grp"><h3>Nearest waterway<span class="tag real">published</span></h3>';
+  if(o.creek) h+='<div class="st"><span class="k">Name <span class="cite" data-c="hydro">i</span></span><span class="v">'+o.creek.name+'</span></div>'+
+     '<div class="st"><span class="k">Class</span><span class="v">'+String(o.creek.cls).replace(/_/g," ")+'</span></div>'+
+     '<div class="st"><span class="k">Distance</span><span class="v mono">'+fmtKm(o.creek.km)+'</span></div>';
+  else h+='<p class="lede" style="margin:0">None rendered nearby. Zoom past level 11 and inspect again.</p>';
+  h+='</div>';
+
+  h+='<div class="grp"><h3>Nearest facility<span class="tag appr">approx. position</span></h3>';
+  if(o.fac){
+    const p=o.fac.f.properties;
+    h+='<div class="st"><span class="k">Name <span class="cite" data-c="fac">i</span></span><span class="v">'+p.name+'</span></div>'+
+       '<div class="st"><span class="k">Type</span><span class="v">'+((FAC_CATS[p.cat]||{}).nm||"facility")+'</span></div>'+
+       (p.operator?'<div class="st"><span class="k">Operator</span><span class="v">'+p.operator+'</span></div>':'')+
+       '<div class="st"><span class="k">Distance</span><span class="v mono">'+fmtKm(o.fac.km)+'</span></div>'+
+       '<a class="plink" href="'+echoLink(p.name)+'" target="_blank" rel="noopener"><i class="ph ph-scales"></i> Permit history in EPA ECHO</a>'+
+       '<div class="banner warn" style="margin-top:11px"><i class="ph ph-warning"></i><div>Proximity is geography, not causation. This facility being near this tract is not evidence it affected the score. <span class="cite" data-c="adjacency">i</span></div></div>';
+  }
+  h+='</div>';
+  h+='<button class="btn line" id="inspTrace" style="width:100%"><i class="ph ph-flow-arrow"></i> Trace downstream from here</button>'+
+     '<button class="btn line" id="inspCopy" style="width:100%;margin-top:8px"><i class="ph ph-copy"></i> Copy this report</button>';
+  return h;
+}
+function inspectText(){
+  if(!lastI)return "";
+  const o=lastI,L=[];
+  L.push("Downhill site report");
+  L.push("Coordinates: "+o.c[1].toFixed(5)+", "+o.c[0].toFixed(5));
+  if(o.t){
+    L.push("Census tract "+o.t.tractId+", "+o.t.county+" County");
+    if(o.t.ACS2019TotalPop)L.push("Population: "+o.t.ACS2019TotalPop);
+    L.push("");
+    L.push(CES_LABEL+" statewide percentiles");
+    IND.forEach(function(r){
+      const v=o.t[r[0]]; if(v===null||v===undefined)return;
+      const n=Math.round(Number(v)); if(!isNaN(n))L.push("  "+r[1]+": "+n);
+    });
+  }
+  L.push("");
+  if(o.creek)L.push("Nearest waterway: "+o.creek.name+" ("+o.creek.cls+"), "+o.creek.km.toFixed(2)+" km");
+  if(o.fac)L.push("Nearest facility: "+o.fac.f.properties.name+", "+o.fac.km.toFixed(2)+" km (approximate position)");
+  L.push("Nearest open water: "+o.bay+", "+o.bayKm.toFixed(1)+" km");
+  L.push("");
+  L.push("Percentiles are statewide ranks, not absolute risk. CalEnviroScreen is a screening");
+  L.push("tool, not a health risk assessment for any individual or address. A facility being");
+  L.push("near a tract is not evidence that it affected that tract's score.");
+  L.push("");
+  L.push("Sources: "+CES_LABEL+" (OEHHA), retrieved "+D.retrieved+"; facility records from");
+  L.push("public regulatory sources, verify at https://echo.epa.gov; waterways from OpenStreetMap.");
+  return L.join("\n");
+}
+
+function setTrace(path){
+  const fc=path&&path.length>1?{type:"FeatureCollection",features:[turf.lineString(path)]}
+    :{type:"FeatureCollection",features:[]};
+  if(map.getSource("trace"))map.getSource("trace").setData(fc);
+}
+function doTrace(ll){
+  const click=[ll.lng,ll.lat],p=map.project(ll);
+  let feats=[];
+  try{feats=map.queryRenderedFeatures([[p.x-60,p.y-60],[p.x+60,p.y+60]],{layers:["hydro"]});}catch(e){}
+  const sink=near(click,SINKS);
+  let path=null,name=null,hops=0;
+  if(feats.length){
+    let best=null,bd=1e9;
+    feats.forEach(function(f){
+      reachLines(f).forEach(function(cs){
+        if(cs.length<2)return;
+        const d=turf.pointToLineDistance(turf.point(click),turf.lineString(cs));
+        if(d<bd){bd=d;best={cs:cs,name:f.properties&&(f.properties.name||f.properties["name:en"])};}
+      });
+    });
+    if(best){
+      name=best.name||null;
+      const cs=best.cs.slice();
+      const ord=turf.distance(cs[cs.length-1],sink)<=turf.distance(cs[0],sink)?cs:cs.slice().reverse();
+      let vi=0,vd=1e9;
+      ord.forEach(function(c,i){const d=turf.distance(click,c);if(d<vd){vd=d;vi=i;}});
+      path=[click].concat(ord.slice(vi)); hops=1;
+      for(let k=0;k<4;k++){
+        const tail=path[path.length-1];
+        if(turf.distance(tail,sink)<2.5)break;
+        const tp=map.project({lng:tail[0],lat:tail[1]});
+        let cand=[];
+        try{cand=map.queryRenderedFeatures([[tp.x-45,tp.y-45],[tp.x+45,tp.y+45]],{layers:["hydro"]});}catch(e){}
+        let nx=null,nd=1e9;
+        cand.forEach(function(f){
+          reachLines(f).forEach(function(c2){
+            if(c2.length<2)return;
+            const fwd=turf.distance(c2[c2.length-1],sink)<=turf.distance(c2[0],sink);
+            const seq=fwd?c2:c2.slice().reverse();
+            const gap=turf.distance(tail,seq[0]);
+            const gain=turf.distance(tail,sink)-turf.distance(seq[seq.length-1],sink);
+            if(gap<1.2&&gain>0.4&&gap<nd){nd=gap;nx=seq;}
+          });
+        });
+        if(!nx)break;
+        path=path.concat(nx);hops++;
+      }
+      path.push(sink);
+    }
+  }
+  if(!path){toast("No mapped creek nearby. Zoom in and click closer to a blue line.");return;}
+  setTrace(path);
+  const line=turf.lineString(path);
+  lastT={name:name||"Unnamed reach",km:turf.length(line,{units:"kilometers"}),hops:hops,
+    path:path,sink:SINK_NAMES[SINKS.indexOf(sink)]||"open water"};
+  map.fitBounds(turf.bbox(line),{padding:110,duration:RM?0:900});
+  openPanel("trace",true); setArm(null,false);
+}
+
+/* ==========================================================================
+   PANELS
+   ========================================================================== */
+const PANELS={
+  layers:{t:"Layers",html:function(){
+    let h='<div class="banner"><i class="ph ph-check-circle"></i><div>Burden data is loaded live from California\'s CalEnviroScreen service. Nothing on this map is estimated.</div></div>'+
+      '<div class="sld"><div class="lab"><span>Burden layer opacity</span><b id="opV">62%</b></div>'+
+      '<input type="range" id="opR" min="10" max="100" value="62"></div>'+
+      '<div class="grp"><h3>Burden indicator<span class="tag real">CalEnviroScreen</span></h3>';
+    Object.keys(FILLS).forEach(function(k){
+      h+='<div class="lrow" data-l="'+k+'"><span class="nm">'+FILLS[k].nm+'</span>'+
+         '<span class="cite" data-c="'+(k==="ces"?"ces":"pctl")+'">i</span>'+
+         '<span class="sw '+(LS[k]?'on':'')+'"></span></div>';
+    });
+    h+='</div><div class="grp"><h3>Facilities<span class="tag appr">approx. position</span></h3>'+
+       '<div class="lrow" data-l="fac"><span class="nm">Show facilities</span><span class="cite" data-c="fac">i</span><span class="sw '+(LS.fac?'on':'')+'"></span></div>'+
+       '<div class="lrow" data-l="faclab"><span class="nm">Facility names</span><span class="cite" data-c="fac">i</span><span class="sw '+(LS.faclab?'on':'')+'"></span></div></div>'+
+       '<div class="grp"><h3>Water<span class="tag real">OpenStreetMap</span></h3>'+
+       '<div class="lrow" data-l="hydro"><span class="nm">Creeks and rivers</span><span class="cite" data-c="hydro">i</span><span class="sw '+(LS.hydro?'on':'')+'"></span></div>'+
+       '<div class="lrow" data-l="flow"><span class="nm">Flow animation</span><span class="cite" data-c="hydro">i</span><span class="sw '+(LS.flow?'on':'')+'"></span></div></div>'+
+       '<p class="lede" style="margin-top:14px;font-size:11.5px">Only one burden indicator draws at a time. Two percentile fills stacked on each other cannot be read.</p>';
+    return h;
+  },init:function(){
+    document.getElementById("opR").oninput=function(e){
+      const v=+e.target.value/100;
+      document.getElementById("opV").textContent=e.target.value+"%";
+      Object.keys(FILLS).forEach(function(k){ if(map.getLayer(k))map.setPaintProperty(k,"fill-opacity",v); });
+    };
+    document.querySelectorAll("#pBody .lrow").forEach(function(r){
+      r.addEventListener("click",function(ev){
+        if(ev.target.closest(".cite"))return;
+        const id=r.dataset.l;
+        if(FILLS[id]){
+          const on=!LS[id];
+          Object.keys(FILLS).forEach(function(k){LS[k]=false;});
+          LS[id]=on;
+        } else LS[id]=!LS[id];
+        applyVis(); openPanel("layers",true);
+      });
+    });
+  }},
+
+  inspect:{t:"Inspect a location",html:inspectHTML,init:function(){
+    const b=document.getElementById("inspBtn"); if(b)b.onclick=function(){setArm("i",!armI);};
+    const t=document.getElementById("inspTrace");
+    if(t)t.onclick=function(){ if(lastI)doTrace({lng:lastI.c[0],lat:lastI.c[1]}); };
+    const c=document.getElementById("inspCopy");
+    if(c)c.onclick=function(){
+      const txt=inspectText();
+      if(navigator.clipboard&&navigator.clipboard.writeText)
+        navigator.clipboard.writeText(txt).then(function(){toast("Report copied");},function(){dl("site-report.txt",txt);});
+      else dl("site-report.txt",txt);
+    };
+  }},
+
+  trace:{t:"Trace downstream",html:function(){
+    let h='<div class="banner warn"><i class="ph ph-warning"></i><div>An indicative surface path along mapped creeks. Not a hydraulic model, and it cannot see culverts, pumps or piped storm drains. <span class="cite" data-c="trace">i</span></div></div>'+
+      '<p class="lede">Click near any blue line. The route follows real waterway geometry downhill toward open water.</p>'+
+      '<button class="btn" id="traceBtn" style="width:100%"><i class="ph ph-flow-arrow"></i> Arm trace</button>';
+    if(lastT) h+='<div style="margin-top:15px">'+
+      '<div class="st"><span class="k">Entry reach <span class="cite" data-c="hydro">i</span></span><span class="v">'+lastT.name+'</span></div>'+
+      '<div class="st"><span class="k">Path length</span><span class="v mono">'+lastT.km.toFixed(1)+' km</span></div>'+
+      '<div class="st"><span class="k">Reaches walked</span><span class="v mono">'+lastT.hops+'</span></div>'+
+      '<div class="st"><span class="k">Reaches</span><span class="v">'+lastT.sink+'</span></div></div>'+
+      '<button class="btn line" id="dlTrace" style="width:100%;margin-top:12px"><i class="ph ph-download-simple"></i> Download as GeoJSON</button>';
+    return h;
+  },init:function(){
+    const b=document.getElementById("traceBtn"); if(b)b.onclick=function(){setArm("t",!armT);};
+    const d=document.getElementById("dlTrace");
+    if(d)d.onclick=function(){
+      dl("downhill-trace.geojson",JSON.stringify(turf.lineString(lastT.path,{
+        entry_reach:lastT.name,km:+lastT.km.toFixed(2),reaches:lastT.hops,receiving_water:lastT.sink,
+        note:"Indicative surface path along OpenStreetMap waterways. Not a hydraulic model."}),null,1));
+    };
+  }},
+
+  rank:{t:"Highest scoring tracts",html:function(){
+    const k=activeFill()||"ces", field=FILLS[k].f;
+    const rows=D.tracts.features.map(function(x){return {p:x.properties,v:Number(x.properties[field]),f:x};})
+      .filter(function(r){return !isNaN(r.v);}).sort(function(a,b){return b.v-a.v;}).slice(0,25);
+    let h='<div class="banner"><i class="ph ph-info"></i><div>The 25 Bay Area tracts scoring highest on <b>'+FILLS[k].nm+
+      '</b>, ranked against all California tracts. <span class="cite" data-c="pctl">i</span></div></div>';
+    rows.forEach(function(r,i){
+      h+='<div class="lrow" data-fly="'+i+'"><span class="nm">'+
+        '<b class="mono" style="color:var(--accent)">'+String(i+1).padStart(2,"0")+'</b> Tract '+r.p.tractId+
+        '<div style="font-size:10.5px;color:var(--faint)">'+r.p.county+' County</div></span>'+
+        '<span class="mono" style="font-weight:600">'+Math.round(r.v)+'</span></div>';
+    });
+    window.__rank=rows;
+    return h;
+  },init:function(){
+    document.querySelectorAll("#pBody [data-fly]").forEach(function(el){
+      el.onclick=function(){
+        const r=window.__rank[+el.dataset.fly]; if(!r)return;
+        try{ map.fitBounds(turf.bbox(r.f),{padding:120,duration:RM?0:900});
+          if(map.getLayer("tract-sel"))map.setFilter("tract-sel",["==","tractId",r.p.tractId]); }catch(e){}
+        toast("Tract "+r.p.tractId+", "+r.p.county+" County");
+      };
+    });
+  }},
+
+  data:{t:"Data and export",html:function(){
+    return '<div class="grp"><h3>What is loaded<span class="tag real">published</span></h3>'+
+      '<div class="st"><span class="k">Burden dataset <span class="cite" data-c="ces">i</span></span><span class="v">'+CES_LABEL+'</span></div>'+
+      '<div class="st"><span class="k">Tracts</span><span class="v mono">'+D.tracts.features.length.toLocaleString()+'</span></div>'+
+      '<div class="st"><span class="k">Retrieved</span><span class="v mono">'+D.retrieved+'</span></div>'+
+      '<div class="st"><span class="k">Facilities <span class="cite" data-c="fac">i</span></span><span class="v mono">'+D.fac.features.length+'</span></div>'+
+      '</div>'+
+      '<div class="grp"><h3>Caveats that travel with the data</h3>'+
+      '<p class="lede" style="margin:0 0 8px">Percentiles are statewide ranks, not absolute risk. CalEnviroScreen is a screening tool and is not a health risk assessment for any individual or address.</p>'+
+      '<p class="lede" style="margin:0">Facility positions are approximate centroids. Holding a permit is not a finding of harm. Verify any specific claim in EPA ECHO.</p></div>'+
+      '<div class="grp"><h3>Export</h3>'+
+      '<button class="btn line" id="eCsv" style="width:100%;margin-bottom:8px"><i class="ph ph-file-csv"></i> Tract scores as CSV</button>'+
+      '<button class="btn line" id="eFac" style="width:100%"><i class="ph ph-file-code"></i> Facilities as GeoJSON</button>'+
+      '<p class="lede" style="margin:10px 0 0;font-size:11.5px">Exports carry the source and retrieval date in a header, so a file detached from this page still says where it came from.</p></div>';
+  },init:function(){
+    document.getElementById("eCsv").onclick=function(){
+      let csv="# Source: "+CES_LABEL+" (OEHHA), retrieved "+D.retrieved+"\n";
+      csv+="# Statewide percentiles, not absolute risk. Screening tool, not a health risk assessment.\n";
+      csv+="tract,county,population,"+IND.map(function(r){return r[0];}).join(",")+"\n";
+      D.tracts.features.forEach(function(f){
+        const p=f.properties;
+        csv+=[p.tractId,'"'+p.county+'"',p.ACS2019TotalPop||""]
+          .concat(IND.map(function(r){return p[r[0]]===null||p[r[0]]===undefined?"":p[r[0]];})).join(",")+"\n";
+      });
+      dl("downhill-tract-scores.csv",csv);
+    };
+    document.getElementById("eFac").onclick=function(){
+      const out=JSON.parse(JSON.stringify(D.fac));
+      out.meta={note:"Names and operators from public regulatory records. Positions are approximate facility centroids, not surveyed coordinates. Verify in EPA ECHO."};
+      dl("downhill-facilities.geojson",JSON.stringify(out,null,1));
+    };
+  }},
+
+  guide:{t:"About and method",html:function(){
+    return '<div class="gsec"><h3><i class="ph ph-compass"></i> What this is</h3>'+
+      '<p>A map of cumulative environmental burden and permitted dischargers across the nine county Bay Area. Burden data loads live from California\'s public CalEnviroScreen service each time the page opens, so it is never stale.</p></div>'+
+      '<div class="gsec"><h3><i class="ph ph-warning"></i> The one thing to be careful about</h3>'+
+      '<p>This map draws two independent datasets on one basemap. A facility sitting inside or beside a high scoring tract is a fact about geography. It is <b>not</b> evidence that the facility caused the score.</p>'+
+      '<p>CalEnviroScreen combines around twenty indicators, most of which have nothing to do with any single site. Treat proximity as a question worth asking, never as an answer. <span class="cite" data-c="adjacency">i</span></p></div>'+
+      '<div class="gsec"><h3><i class="ph ph-chart-bar"></i> Reading the numbers</h3>'+
+      '<p>Every CalEnviroScreen value is a <b>statewide percentile</b>. A tract at 95 ranks above 95 percent of California tracts on that indicator. It does not mean 95 percent of anything.</p>'+
+      '<p>OEHHA is explicit that CalEnviroScreen is a screening tool and does not assess health risk for an individual person or address. Neither does this map.</p></div>'+
+      '<div class="gsec"><h3><i class="ph ph-map-pin"></i> Facility positions</h3>'+
+      '<p>Facility names and operators come from public regulatory records and are reliable. The marker positions are approximate centroids, not surveyed coordinates, and are labeled that way throughout. Every facility links to EPA ECHO, which holds the authoritative record.</p></div>'+
+      '<div class="gsec"><h3><i class="ph ph-flow-arrow"></i> The trace</h3>'+
+      '<p>Follows real creek geometry downhill toward open water. Indicative only: a surface path along mapped waterways, with no elevation input and no knowledge of culverts, pumps or the piped storm drain network. Do not use it to establish that a discharge reached a particular water body. <span class="cite" data-c="trace">i</span></p></div>'+
+      '<div class="gsec"><h3><i class="ph ph-database"></i> Sources</h3>'+
+      '<p>Burden: '+CES_LABEL+', California OEHHA, retrieved '+D.retrieved+'.<br>'+
+      'Facilities: public regulatory records, verify in EPA ECHO.<br>'+
+      'Waterways and basemap: OpenStreetMap contributors under ODbL.</p></div>'+
+      '<div class="gsec"><h3><i class="ph ph-keyboard"></i> Keyboard</h3>'+
+      '<div class="keyrow"><span>Find anything</span><span class="kbd">Cmd or Ctrl K</span></div>'+
+      '<div class="keyrow"><span>Cancel a tool</span><span class="kbd">Esc</span></div></div>';
+  },init:function(){}}
+};
+
+let open=null;
+function openPanel(k,keep){
+  if(open===k&&!keep){closePanel();return;}
+  open=k;
+  const P=PANELS[k];
+  document.getElementById("pTitle").textContent=P.t;
+  const body=document.getElementById("pBody");
+  const y=keep?body.scrollTop:0;
+  body.innerHTML=typeof P.html==="function"?P.html():P.html;
+  const el=document.getElementById("panel");
+  if(!keep){el.classList.remove("on");void el.offsetWidth;}
+  el.classList.add("on");
+  if(P.init)P.init();
+  body.scrollTop=y;
+  document.getElementById("legend").classList.add("shift");
+  document.querySelectorAll("#rail .rbtn").forEach(function(b){b.classList.toggle("on",b.dataset.panel===k);});
+}
+function closePanel(){
+  open=null;
+  document.getElementById("panel").classList.remove("on");
+  document.getElementById("legend").classList.remove("shift");
+  document.querySelectorAll("#rail .rbtn").forEach(function(b){b.classList.remove("on");});
+}
+document.querySelectorAll("#rail .rbtn[data-panel]").forEach(function(b){
+  b.onclick=function(){openPanel(b.dataset.panel);};
+});
+document.getElementById("pClose").onclick=closePanel;
+
+function dl(name,text){
+  const b=new Blob([text],{type:"text/plain"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(b);a.download=name;
+  document.body.appendChild(a);a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},500);
+  toast("Saved "+name);
+}
+
+function bindPopups(){
+  const pop=function(ll,html){new maplibregl.Popup({offset:12,maxWidth:"312px"}).setLngLat(ll).setHTML(html).addTo(map);};
+  map.on("click","fac",function(e){
+    if(armAny())return;
+    const p=e.features[0].properties;
+    pop(e.lngLat,'<div class="badge appr">Published record, approximate position</div>'+
+      '<div class="pt">'+p.name+'</div><div class="ps">'+((FAC_CATS[p.cat]||{}).nm||"facility")+'</div>'+
+      (p.operator?'<div class="pr"><span>Operator</span><b>'+p.operator+'</b></div>':'')+
+      (p.note?'<div class="pr"><span>Note</span><b>'+p.note+'</b></div>':'')+
+      '<a class="plink" href="'+echoLink(p.name)+'" target="_blank" rel="noopener"><i class="ph ph-scales"></i> Permit history in EPA ECHO</a>'+
+      '<div class="caveat">Name and operator are from public regulatory records. The marker is an approximate centroid. Holding a permit is not a finding of harm.</div>');
+  });
+  Object.keys(FILLS).forEach(function(k){
+    map.on("click",k,function(e){
+      if(armAny())return;
+      const p=e.features[0].properties;
+      pop(e.lngLat,'<div class="badge">Published, CalEnviroScreen</div>'+
+        '<div class="pt">Tract '+p.tractId+'</div><div class="ps">'+p.county+' County</div>'+
+        '<div class="pr"><span>'+FILLS[k].nm+'</span><b>'+Math.round(Number(p[FILLS[k].f]))+'</b></div>'+
+        (p.ACS2019TotalPop?'<div class="pr"><span>Population</span><b>'+Number(p.ACS2019TotalPop).toLocaleString()+'</b></div>':'')+
+        '<div class="caveat">Statewide percentile, not absolute risk. A screening tool, not a health risk assessment for any individual or address.</div>');
+    });
+  });
+  map.on("click","hydro",function(e){
+    if(armAny())return;
+    const p=e.features[0].properties||{};
+    pop(e.lngLat,'<div class="badge">Published, OpenStreetMap</div>'+
+      '<div class="pt">'+(p.name||"Unnamed waterway")+'</div>'+
+      '<div class="ps">'+String(p.class||"stream").replace(/_/g," ")+'</div>');
+  });
+  ["fac"].concat(Object.keys(FILLS)).forEach(function(l){
+    map.on("mouseenter",l,function(){if(!armAny())map.getCanvas().style.cursor="pointer";});
+    map.on("mouseleave",l,function(){map.getCanvas().style.cursor=armAny()?"crosshair":"";});
+  });
+  map.on("click",function(e){ if(armI)inspectAt(e.lngLat); else if(armT)doTrace(e.lngLat); });
+}
+
+const citeEl=document.getElementById("cite");
+document.addEventListener("click",function(e){
+  const t=e.target.closest(".cite");
+  if(t){
+    const c=CITE[t.dataset.c]; if(!c)return;
+    citeEl.innerHTML='<div class="s">'+c.s+'</div><h4>'+c.t+'</h4>'+
+      (c.warn?'<p class="warn">'+c.warn+'</p>':'')+'<p>'+c.b+'</p>'+
+      '<a href="'+c.u+'" target="_blank" rel="noopener"><i class="ph ph-arrow-square-out"></i> '+c.l+'</a>';
+    const r=t.getBoundingClientRect();
+    citeEl.style.display="block";
+    const b=citeEl.getBoundingClientRect();
+    let L=r.right+10,T=r.top-8;
+    if(L+b.width>innerWidth-10)L=r.left-b.width-10;
+    if(L<10)L=10;
+    if(T+b.height>innerHeight-10)T=innerHeight-b.height-10;
+    if(T<10)T=10;
+    citeEl.style.left=L+"px";citeEl.style.top=T+"px";
+    e.stopPropagation();return;
+  }
+  if(!e.target.closest("#cite"))citeEl.style.display="none";
+});
+
+/* find */
+const CMDS=[
+  {t:"Layers",i:"ph-stack",sub:"tool",go:function(){openPanel("layers",open==="layers");}},
+  {t:"Inspect a location",i:"ph-crosshair-simple",sub:"tool",go:function(){openPanel("inspect",open==="inspect");setArm("i",true);}},
+  {t:"Trace downstream",i:"ph-flow-arrow",sub:"tool",go:function(){openPanel("trace",open==="trace");setArm("t",true);}},
+  {t:"Highest scoring tracts",i:"ph-ranking",sub:"tool",go:function(){openPanel("rank",open==="rank");}},
+  {t:"Data and export",i:"ph-database",sub:"tool",go:function(){openPanel("data",open==="data");}},
+  {t:"About and method",i:"ph-book-open",sub:"tool",go:function(){openPanel("guide",open==="guide");}},
+  {t:"Toggle theme",i:"ph-sun",sub:"view",go:function(){toggleTheme();}},
+  {t:"Reset view",i:"ph-arrows-out",sub:"view",go:function(){map.flyTo({center:BAY.center,zoom:BAY.zoom,duration:RM?0:900});}}
+];
+Object.keys(COUNTY_FIPS).forEach(function(c){
+  const n=COUNTY_FIPS[c];
+  CMDS.push({t:n+" County",i:"ph-map-pin",sub:"county",go:function(){
+    const fs=D.tracts.features.filter(function(f){return f.properties.county===n;});
+    if(!fs.length){toast("No tracts for "+n);return;}
+    try{ map.fitBounds(turf.bbox({type:"FeatureCollection",features:fs}),{padding:60,duration:RM?0:1000}); }catch(e){}
+    toast(n+" County, "+fs.length+" tracts");
+  }});
+});
+let sel=0,hits=[];
+const cmdEl=document.getElementById("cmd"),cmdIn=document.getElementById("cmdin"),cmdList=document.getElementById("cmdlist");
+function allE(){ return CMDS.concat(PLACES.map(function(p){
+  return {t:p.name,i:p.i,sub:p.sub,go:function(){map.flyTo({center:p.c,zoom:14,duration:RM?0:1000});toast(p.name);}};})); }
+function render(){
+  if(!hits.length){cmdList.innerHTML='<div class="ci" style="color:var(--faint)">No match</div>';return;}
+  cmdList.innerHTML=hits.slice(0,60).map(function(c,i){
+    return '<div class="ci '+(i===sel?'sel':'')+'" data-i="'+i+'"><i class="ph '+c.i+'"></i><span>'+c.t+'</span>'+
+      (c.sub?'<span class="sub">'+c.sub+'</span>':'')+'</div>';}).join("");
+  cmdList.querySelectorAll(".ci[data-i]").forEach(function(el){
+    el.onclick=function(){hits[+el.dataset.i].go();cmdClose();};});
+}
+function filt(q){
+  const a=allE();
+  if(!q)return a.slice(0,40);
+  const s=q.toLowerCase();
+  return a.filter(function(c){return c.t.toLowerCase().indexOf(s)!==-1||(c.sub&&c.sub.toLowerCase().indexOf(s)!==-1);});
+}
+function cmdOpen(){cmdEl.classList.add("on");cmdIn.value="";hits=filt("");sel=0;render();cmdIn.focus();}
+function cmdClose(){cmdEl.classList.remove("on");}
+cmdIn.oninput=function(){hits=filt(cmdIn.value);sel=0;render();};
+cmdEl.onclick=function(e){if(e.target===cmdEl)cmdClose();};
+document.getElementById("cmdBtn").onclick=cmdOpen;
+document.addEventListener("keydown",function(e){
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){
+    e.preventDefault(); if(ready&&document.getElementById("app").classList.contains("on"))cmdOpen(); return;}
+  if(cmdEl.classList.contains("on")){
+    if(e.key==="Escape")cmdClose();
+    else if(e.key==="ArrowDown"){e.preventDefault();sel=Math.min(sel+1,Math.min(hits.length,60)-1);render();}
+    else if(e.key==="ArrowUp"){e.preventDefault();sel=Math.max(sel-1,0);render();}
+    else if(e.key==="Enter"&&hits[sel]){hits[sel].go();cmdClose();}
+    return;}
+  if(e.key==="Escape"){setArm(null,false);citeEl.style.display="none";}
+});
+
+function toggleTheme(){
+  theme=theme==="dark"?"light":"dark";
+  document.documentElement.classList.toggle("light",theme==="light");
+  document.getElementById("themeBtn").innerHTML=theme==="dark"?'<i class="ph ph-sun"></i>':'<i class="ph ph-moon"></i>';
+  map.setStyle(STYLE[theme],{diff:false});
+  map.once("style.load",function(){ detectVector(); addSources(); addLayers(); });
+}
+document.getElementById("themeBtn").onclick=toggleTheme;
+document.getElementById("shareBtn").onclick=function(){
+  const c=map.getCenter();
+  const u=location.origin+location.pathname+"#"+c.lng.toFixed(4)+","+c.lat.toFixed(4)+","+map.getZoom().toFixed(2);
+  history.replaceState(null,"",u);
+  if(navigator.clipboard&&navigator.clipboard.writeText)
+    navigator.clipboard.writeText(u).then(function(){toast("Link copied");},function(){toast("Link is in the address bar");});
+  else toast("Link is in the address bar");
+};
+document.getElementById("enterBtn").onclick=function(){
+  document.getElementById("gate").classList.add("gone");
+  document.getElementById("app").classList.add("on");
+  openPanel("layers");
+  const h=location.hash.replace("#","").split(",");
+  if(h.length>=3&&!isNaN(+h[0]))map.jumpTo({center:[+h[0],+h[1]],zoom:+h[2]});
+};
+
+boot();
+</script>
+</body>
+</html>
