@@ -1,0 +1,68 @@
+MIT License
+
+Copyright (c) 2026 Arun Raisinghani
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+NOTE ON DATA
+
+The licence above covers this project's own source code. It does not cover the
+data the map displays, which belongs to other people and keeps their terms.
+
+The map stores no copy of any dataset. It requests them from the publisher when
+someone opens the page. If you export a file from the app, or take a snapshot
+with the optional script in scripts/, the terms below travel with whatever you
+produced.
+
+  CalEnviroScreen
+    California Office of Environmental Health Hazard Assessment.
+    Public State of California data. The state records the dataset as having
+    no restrictions on public use. Cite OEHHA regardless.
+    https://oehha.ca.gov/calenviroscreen
+
+  EPA ECHO and the Facility Registry Service
+    United States Environmental Protection Agency.
+    Public domain federal data. Cite EPA.
+    https://echo.epa.gov/
+
+  OpenStreetMap
+    (c) OpenStreetMap contributors, licensed under the Open Database Licence
+    (ODbL). Attribution is required, and the map displays it. If you
+    redistribute geodata derived from it, you must share it alike.
+    https://www.openstreetmap.org/copyright
+
+  Basemap tiles
+    CARTO, built on OpenMapTiles and OpenStreetMap data. Attribution for all
+    three is displayed on the map and must stay there.
+
+-------------------------------------------------------------------------------
+
+NOTE ON WHAT THE OUTPUT IS
+
+Some layers in this app are not data at all. The simulator, the modeled proxy
+grid and the proximity index are computed by the app itself and describe no
+real measurement. Files exported from those features are named and labelled to
+say so, in the filename and inside the file.
+
+Nothing in this project is a health risk assessment, a regulatory finding, or
+evidence that any facility has caused harm. Redistributing an export does not
+change that, and stripping the warnings out of one would be a misrepresentation
+regardless of this licence.
