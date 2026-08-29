@@ -134,12 +134,7 @@ inside the app. Use `index.html` for anything that leaves the room.
 
 ## Licence and attribution
 
-Code is MIT. **The data isn't mine to license** and keeps its publishers' terms:
-
-- CalEnviroScreen, California OEHHA. Public state data. Cite OEHHA.
-- Facility records from public regulatory sources. Verify in EPA ECHO.
-- OpenStreetMap, © OpenStreetMap contributors, ODbL. Attribution required, and
-  it's displayed on the map.
+All rights reserved.
 
 ## Contributing
 
