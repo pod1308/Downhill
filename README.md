@@ -8,7 +8,7 @@ percentiles, the nearest mapped waterway and the nearest permitted facility.
 Click near a creek and it traces an indicative surface path downhill toward
 open water.
 
-**Live map:** https://YOUR-USERNAME.github.io/downhill/
+**Live map:** https://pod1308.github.io/downhill/
 
 ---
 
